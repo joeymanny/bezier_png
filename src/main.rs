@@ -7,9 +7,10 @@ use rayon::iter::ParallelIterator;
 use rand::Rng;
 use rayon::iter::IntoParallelIterator;
 
-const MAX_X: u32 = 500;
-const MAX_Y: u32 = 500;
+const MAX_X: u32 = 50;
+const MAX_Y: u32 = 50;
 
+const PROGRESSION: u32 = 5_000;
 
 const START: (f32, f32) = (10.0,10.0);
 const END: (f32, f32) = (80.0, 10.0);
@@ -46,9 +47,10 @@ struct Bezier{
 
 
 impl Bezier{
-    fn new<T: Into<Point> + Clone>(points: &[T]) -> Self{
+    fn new<T: Into<Point>>(points: Vec<T>) -> Self{
         Bezier{
-            points: points.into_iter().map(|p| (p.clone()).into()).collect::<Vec<Point>>()
+            // points: points.into_iter().map(|p| (p.clone()).into()).collect::<Vec<Point>>()
+            points: points.into_iter().map(|v|v.into()).collect::<Vec<Point>>()
         }
     }
     fn point(&self, progress: f32) -> Point{
@@ -58,17 +60,25 @@ impl Bezier{
 fn calc_bezier(v: &[Point], progress: f32) -> Point{
     // 
     // (1.0 - progress).powi(2) * p0 + 2.0 * (1.0 - progress) * progress * p1 + progress.powi(2) * p2
-    recursive_step(v.len() as u32, 0, progress, v)
+    recursive_step(v.len() as u32 - 1, 0, progress, v)
 }
 fn recursive_step(n: u32, mut i: u32, progress: f32, v: &[Point]) -> Point{
-    i += 1;
-    if i == n {
-         v[i as usize - 1].clone() * binomial_iter::BinomialIter::new(n, i).binom() as f32 * (1.0 - progress).powi((n - i) as i32) *progress.powi(i as i32)
+    if i == n{
+         v.get(i as usize).unwrap().clone() * binomial_iter::BinomialIter::new(n, i).binom() as f32 * (1.0 - progress).powi((n - i) as i32) *progress.powi(i as i32)
         // Point{x: 0.0, y: 0.0}
     }else{
-        v[i as usize - 1].clone() * binomial_iter::BinomialIter::new(n, i).binom() as f32 * (1.0 - progress).powi((n - i) as i32) *progress.powi(i as i32) + recursive_step(n, i, progress, v)
+        v.get(i as usize).unwrap().clone() * binomial_iter::BinomialIter::new(n, i).binom() as f32 * (1.0 - progress).powi((n - i) as i32) *progress.powi(i as i32) + recursive_step(n, i + 1wn, progress, v)
     }
-    
+}
+
+fn equate(n: u32, mut i: u32, progress: f32, v: &[Point]) -> Point{
+    v.get(i as usize).unwrap().clone() *
+    binomial_iter::BinomialIter::new(n, i).binom() as f32 *
+    (1.0 - progress).powi((n - i) as i32) * 
+    progress.powi(i as i32)
+    + 
+    recursive_step(n, i + 1, progress, v)
+
 }
 
 pub fn main() {
@@ -78,10 +88,11 @@ pub fn main() {
         buffer: new_buffer_bools(MAX_X, MAX_Y)
     };
     let mut rand = rand::thread_rng();
-    let mut points = (0..32).into_iter().map(|_| Point::from((rand.gen::<f32>() * MAX_X as f32, rand.gen::<f32>() * MAX_Y as f32))).collect::<Vec<Point>>();
-    points.push(Point { x: MAX_X as f32, y: MAX_Y as f32});
-    // let points = vec![ Point{x: 77.0, y: 40.0}, Point{x: 100.0, y: 100.0}];
-    let curve = Bezier::new(&points);
+    // let mut points = (0..3).into_iter().map(|_| Point::from((rand.gen::<f32>() * MAX_X as f32, rand.gen::<f32>() * MAX_Y as f32))).collect::<Vec<Point>>();
+    let mut points: Vec<Point> = vec![];
+    // points.push(Point { x: MAX_X as f32, y: MAX_Y as f32});
+    let points = vec![ Point{x: 77.0, y: 40.0}, Point{x: 100.0, y: 100.0}];
+    let curve = Bezier::new(points);
     // let mut progress = 0.0;
     // loop{
     //     let _ = draw_point(&mut canvas.buffer, curve.point(progress));
@@ -90,8 +101,8 @@ pub fn main() {
     //         break;
     //     }
     // }
-    let pixels = (0..50_000).into_par_iter().map(|n|{
-        curve.point(n as f32 / 50_000.0)
+    let pixels = (0..PROGRESSION).into_par_iter().map(|n|{
+        curve.point(n as f32 / PROGRESSION as f32)
     }).collect::<Vec<Point>>();
     pixels.into_iter().for_each(|p|{
         let _ = draw_point(&mut canvas.buffer, p);
