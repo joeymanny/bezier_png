@@ -6,11 +6,12 @@ use rayon::iter::ParallelIterator;
 
 use rand::Rng;
 use rayon::iter::IntoParallelIterator;
+use sdl2::event::{self, Event};
 
-const MAX_X: u32 = 50;
-const MAX_Y: u32 = 50;
+const MAX_X: u32 = 600;
+const MAX_Y: u32 = 400;
 
-const PROGRESSION: u32 = 5_000;
+const PROGRESSION: u32 = 1000;
 
 const START: (f32, f32) = (10.0,10.0);
 const END: (f32, f32) = (80.0, 10.0);
@@ -38,6 +39,13 @@ struct Point{
 
 impl Point{
     const ZERO:Self = Point{x: 0.0, y: 0.0};
+    fn normalized(self) -> Self{
+        let mag = (self.x.powi(2) + self.y.powi(2)).sqrt();
+        Self {
+            x:self.x / mag,
+            y: self.y / mag
+        }
+    }
 }
 
 struct Bezier{
@@ -64,21 +72,21 @@ fn calc_bezier(v: &[Point], progress: f32) -> Point{
 }
 fn recursive_step(n: u32, mut i: u32, progress: f32, v: &[Point]) -> Point{
     if i == n{
-         v.get(i as usize).unwrap().clone() * binomial_iter::BinomialIter::new(n, i).binom() as f32 * (1.0 - progress).powi((n - i) as i32) *progress.powi(i as i32)
+        //  v.get(i as usize).unwrap().clone() * binomial_iter::BinomialIter::new(n, i).binom() as f32 * (1.0 - progress).powi((n - i) as i32) *progress.powi(i as i32)
         // Point{x: 0.0, y: 0.0}
+        equate(n, i, progress, v)
     }else{
-        v.get(i as usize).unwrap().clone() * binomial_iter::BinomialIter::new(n, i).binom() as f32 * (1.0 - progress).powi((n - i) as i32) *progress.powi(i as i32) + recursive_step(n, i + 1wn, progress, v)
+        // v.get(i as usize).unwrap().clone() * binomial_iter::BinomialIter::new(n, i).binom() as f32 * (1.0 - progress).powi((n - i) as i32) *progress.powi(i as i32) + recursive_step(n, i + 1wn, progress, v)
+        equate(n, i, progress, v) + recursive_step(n, i + 1, progress, v)
     }
 }
 
-fn equate(n: u32, mut i: u32, progress: f32, v: &[Point]) -> Point{
+
+fn equate(n: u32, i: u32, progress: f32, v: &[Point]) -> Point{
     v.get(i as usize).unwrap().clone() *
     binomial_iter::BinomialIter::new(n, i).binom() as f32 *
     (1.0 - progress).powi((n - i) as i32) * 
     progress.powi(i as i32)
-    + 
-    recursive_step(n, i + 1, progress, v)
-
 }
 
 pub fn main() {
@@ -88,28 +96,99 @@ pub fn main() {
         buffer: new_buffer_bools(MAX_X, MAX_Y)
     };
     let mut rand = rand::thread_rng();
-    // let mut points = (0..3).into_iter().map(|_| Point::from((rand.gen::<f32>() * MAX_X as f32, rand.gen::<f32>() * MAX_Y as f32))).collect::<Vec<Point>>();
-    let mut points: Vec<Point> = vec![];
-    // points.push(Point { x: MAX_X as f32, y: MAX_Y as f32});
-    let points = vec![ Point{x: 77.0, y: 40.0}, Point{x: 100.0, y: 100.0}];
-    let curve = Bezier::new(points);
-    // let mut progress = 0.0;
-    // loop{
-    //     let _ = draw_point(&mut canvas.buffer, curve.point(progress));
-    //     progress += 0.00005;
-    //     if progress > 1.0{
-    //         break;
-    //     }
-    // }
-    let pixels = (0..PROGRESSION).into_par_iter().map(|n|{
+    let mut controls = (0..26).into_iter().map(|_| Point::from((rand.gen::<f32>() * MAX_X as f32, rand.gen::<f32>() * MAX_Y as f32))).collect::<Vec<Point>>();
+    let mut curve = Bezier::new(controls);
+
+
+    let sdl_context = sdl2::init().unwrap();
+    let video_subsystem = sdl_context.video().unwrap();
+ 
+    let window = video_subsystem.window("joeboids", MAX_X, MAX_Y)
+        .position_centered()
+        .build()
+        .unwrap();
+ 
+    let mut sdl_canvas = window.into_canvas().accelerated().build().unwrap();
+
+    // calculate the points
+    let mut points = (0..PROGRESSION).into_par_iter().map(|n|{
         curve.point(n as f32 / PROGRESSION as f32)
     }).collect::<Vec<Point>>();
-    pixels.into_iter().for_each(|p|{
-        let _ = draw_point(&mut canvas.buffer, p);
-    });
-    canvas.write().unwrap();
+
+    // draw the points
+    // points.into_iter().for_each(|p|{
+        // let _ = draw_point(&mut canvas.buffer, p);
+        // sdl_canvas.draw_points(points)
+    // });
+    
+
+    let mut velocities = (0..points.len()).map(|_|{
+        Point{
+            x: rand.gen::<f32>() - 0.5,
+            y: rand.gen::<f32>() - 0.5
+        }.normalized()
+    }).collect::<Vec<Point>>();
+
+    // add velocities to points
+    let mut event_pump = sdl_context.event_pump().unwrap();
+    'running: loop{
+        for event in event_pump.poll_iter(){
+            match event{
+                Event::Quit { .. } => break 'running,
+                _ => ()
+             }
+        }
+        if event_pump.keyboard_state().is_scancode_pressed(sdl2::keyboard::Scancode::LShift){
+            let controls = (0..7).into_iter().map(|_| Point::from((rand.gen::<f32>() * MAX_X as f32, rand.gen::<f32>() * MAX_Y as f32))).collect::<Vec<Point>>();
+            curve = Bezier::new(controls);
+
+        }
+        if event_pump.keyboard_state().is_scancode_pressed(sdl2::keyboard::Scancode::Space){
+            velocities = (0..points.len()).map(|_|{
+                Point{
+                    x: rand.gen::<f32>() * 0.5 - 0.25,
+                    y: rand.gen::<f32>() * 0.5 - 0.25
+                }
+            }).collect::<Vec<Point>>();
+        }
+
+        points = (0..PROGRESSION).into_par_iter().map(|n|{
+            curve.point(n as f32 / PROGRESSION as f32)
+        }).collect::<Vec<Point>>();
+
+        curve.points = curve.points.into_iter().zip(velocities.clone()).map(|(p, v)|{
+            let x = (p.x + v.x + MAX_X as f32) % MAX_X as f32;
+            let y = (p.y + v.y + MAX_Y as f32) % MAX_Y as f32;
+            Point{
+                x,
+                y
+            }
+        }).collect();
+
+        
+
+
+        let sdl_points = points.clone().into_iter().map(|p|sdl2::rect::Point::from(p)).collect::<Vec<sdl2::rect::Point>>();
+
+        sdl_canvas.set_draw_color(sdl2::pixels::Color::RGB(0, 0, 0,));
+        sdl_canvas.clear();
+        sdl_canvas.set_draw_color(sdl2::pixels::Color::RGB(255, 255, 255));
+        let _ = sdl_canvas.draw_points(&*sdl_points);
+        sdl_canvas.set_draw_color(sdl2::pixels::Color::RGB(0, 0, 255,));
+        // sdl_canvas.draw_points(curve.points.iter().map(
+            // |v| sdl2::rect::Point::from(v.clone())
+        // ).collect());
+        sdl_canvas.present();
+        // std::thread::sleep(std::time::Duration::from_secs_f32(0.1));
+        // canvas.write().unwrap();
+    }
 }
 
+impl From<Point> for sdl2::rect::Point{
+    fn from(value: Point) -> Self {
+        sdl2::rect::Point::new(value.x.round() as i32, value.y.round() as i32)
+    }
+}
 
 impl From<(f32, f32)> for Point{
     fn from(value: (f32, f32)) -> Self {
